@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download YouTube Video</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        #loading-spinner {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 1000;
+        }
+
+        #extra-options,
+        #format-container {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container mt-5">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Download YouTube Video</h3>
+            </div>
+            <div class="card-body">
+                <form id="download-form">
+                    <div class="form-group">
+                        <label for="youtube-url">YouTube URL</label>
+                        <input type="text" class="form-control" id="youtube-url" placeholder="Enter YouTube URL"
+                            value="https://www.youtube.com/watch?v=4mFLUFnwNDg">
+                    </div>
+                    <button type="button" class="btn btn-primary" id="get-formats-btn">Get Formats</button>
+
+                    <div id="extra-options">
+                        <div class="form-group mt-3">
+                            <label for="output-dir">Output Directory</label>
+                            <input type="text" class="form-control" id="output-dir" placeholder="Enter output directory"
+                                value="E:/Download Youtube/mm">
+                        </div>
+                        <div class="form-group">
+                            <label for="type">Type</label>
+                            <select class="form-control" id="type">
+                                <option value="" selected disabled>Select type</option>
+                                <option value="video">Video</option>
+                                <option value="audio">Audio</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="format-container">
+                            <label for="format-select">Format</label>
+                            <select class="form-control" id="format-select">
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-success" id="download-btn">Download</button>
+                    </div>
+                    <div id="progress-container" class="mt-3">
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%;" id="progress-bar"></div>
+                        </div>
+                        <p id="progress-text">0%</p>
+                    </div>
+                </form>
+                <div id="loading-overlay">
+                    <div id="loading-spinner" class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <div class="footer">
+        <div class="mb-0" style="text-align:center">
+            Powerd By: Mr.Maher Zalan
+        </div>
+        <div class="mb-0" style="text-align:center">
+            Jawwal No: 0599535638
+        </div>
+    </div>
+    <script>
+        $(document).ready(function () {
+            var socket = io('http://localhost:5000');
+            socket.on('connect', function () {
+                console.log('Connected to server');
+            });
+
+            socket.on('progress', function (data) {
+                //console.log('Progress:', data.percentage);
+                var progressElement = document.getElementById('progress-bar');
+                progressElement.style.width = data.percentage;
+                progressElement.textContent = data.percentage;
+            });
+
+            var allFormats = [];
+            function showLoading() {
+                $('#loading-overlay').show();
+                $('#loading-spinner').show();
+            }
+
+            function hideLoading() {
+                $('#loading-overlay').hide();
+                $('#loading-spinner').hide();
+            }
+
+            function checkServerStatus(callback) {
+                $.ajax({
+                    url: 'http://localhost:5000/status',
+                    type: 'GET',
+                    timeout: 2000,
+                    success: function () {
+                        callback(true);
+                    },
+                    error: function () {
+                        callback(false);
+                    }
+                });
+            }
+
+            function showServerOfflineMessage() {
+                alert('Server is offline. Please make sure the server is running.E:\Download Youtube> python app.py');
+            }
+
+            $('#get-formats-btn').click(function () {
+                checkServerStatus(function (isOnline) {
+                    if (!isOnline) {
+                        showServerOfflineMessage();
+                        return;
+                    }
+
+                    var url = $('#youtube-url').val();
+                    if (url) {
+                        showLoading();
+                        $.ajax({
+                            url: 'http://localhost:5000/get_formats',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ url: url }),
+                            success: function (response) {
+                                allFormats = response.formats;
+                                if (allFormats && allFormats.length > 0) {
+                                    $('#extra-options').show();
+                                    $('#type').val('').trigger('change');
+                                } else {
+                                    alert('No formats found for this video.');
+                                }
+                                hideLoading();
+                            },
+                            error: function (xhr, status, error) {
+                                alert('Error: ' + xhr.responseJSON.error);
+                                hideLoading();
+                            }
+                        });
+                    } else {
+                        alert('Please enter a YouTube URL');
+                    }
+                });
+            });
+
+            $('#type').change(function () {
+                var type = $('#type').val();
+                if (type) {
+                    updateFormatOptions(type);
+                    $('#format-container').show();
+                } else {
+                    $('#format-container').hide();
+                }
+            });
+
+            function updateFormatOptions(type) {
+                var formats = allFormats.filter(function (fmt) {
+                    if (type === 'video') {
+                        return fmt.vcodec !== 'none';
+                    } else if (type === 'audio') {
+                        return fmt.acodec !== 'none' && fmt.vcodec === 'none';
+                    }
+                    return false;
+                });
+
+                var options = formats.map(function (fmt) {
+                    var resolution = fmt.resolution ? fmt.resolution : 'Audio only';
+                    return `<option value="${fmt.format_id}">${fmt.format_id} (${resolution})</option>`;
+                }).join('');
+
+                $('#format-select').html(options);
+            }
+
+            $('#download-btn').click(function () {
+                checkServerStatus(function (isOnline) {
+                    if (!isOnline) {
+                        showServerOfflineMessage();
+                        return;
+                    }
+
+                    var url = $('#youtube-url').val();
+                    var outputDir = $('#output-dir').val();
+                    var formatId = $('#format-select').val();
+                    var type = $('#type').val();
+
+                    if (url && outputDir && formatId && type) {
+                        showLoading();
+                        $.ajax({
+                            url: 'http://localhost:5000/download',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ url: url, output_dir: outputDir, format_id: formatId, type: type }),
+                            success: function (response) {
+                                alert('Download successful');
+                                hideLoading();
+                            },
+                            error: function (xhr, status, error) {
+                                alert('Error: ' + xhr.responseJSON.error);
+                                hideLoading();
+                            }
+                        });
+                    } else {
+                        alert('Please provide all required fields');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
